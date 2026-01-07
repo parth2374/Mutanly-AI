@@ -1,6 +1,6 @@
 "use client";
 
-import { Clapperboard, Search, SearchCodeIcon } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import GeneViewer from "~/components/gene-viewer";
 import { Button } from "~/components/ui/button";
@@ -49,16 +49,19 @@ export default function Dashboard() {
   const [mode, setMode] = useState<Mode>("search");
   const router = useRouter()
 
+  const species = "Human";
+
   useEffect(() => {
     const fetchGenomes = async () => {
       try {
         setIsLoading(true);
         const data = await getAvailableGenomes();
-        if (data.genomes && data.genomes["Human"]) {
-          setGenomes(data.genomes["Human"]);
+        if (data?.genomes && data?.genomes?.[species]) {
+          setGenomes(data?.genomes?.[species]);
         }
       } catch (err) {
         setError("Failed to load genome data");
+        console.log(err);
       } finally {
         setIsLoading(false);
       }
@@ -71,10 +74,10 @@ export default function Dashboard() {
       try {
         setIsLoading(true);
         const data = await getGenomeChromosomes(selectedGenome);
-        setChromosomes(data.chromosomes);
-        console.log(data.chromosomes);
-        if (data.chromosomes.length > 0) {
-          setSelectedChromosome(data.chromosomes[0]!.name);
+        setChromosomes(data?.chromosomes);
+        console.log(data?.chromosomes);
+        if (data?.chromosomes.length > 0) {
+          setSelectedChromosome(data?.chromosomes[0]!.name);
         }
       } catch (err) {
         setError("Failed to load chromosome data");
@@ -93,7 +96,7 @@ export default function Dashboard() {
     try {
       setIsLoading(true);
       const data = await searchGenes(query, genome);
-      const results = filterFn ? data.results.filter(filterFn) : data.results;
+      const results = filterFn ? data?.results.filter(filterFn) : data?.results;
 
       setSearchResults(results);
     } catch (err) {

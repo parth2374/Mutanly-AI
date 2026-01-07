@@ -93,6 +93,7 @@ export default function GeneViewer({
         }
       } catch (err) {
         setError("Failed to load sequence data");
+        console.log(err);
       } finally {
         setIsLoadingSequence(false);
       }
