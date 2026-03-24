@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Loader, Search, SearchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import GeneViewer from "~/components/gene-viewer";
 import { Button } from "~/components/ui/button";
@@ -33,8 +33,24 @@ import {
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
 
 type Mode = "browse" | "search";
+
+function GeneRoleBadge({ role }: { role: string }) {
+  const styles: Record<string, string> = {
+    primary: "bg-red-100 text-red-700",
+    modifier: "bg-yellow-100 text-yellow-700",
+    pathway: "bg-blue-100 text-blue-700",
+    pseudo: "bg-gray-100 text-gray-600",
+  };
+
+  return (
+    <span className={`px-2 py-1 rounded text-xs font-medium ${styles[role]}`}>
+      {role}
+    </span>
+  );
+}
 
 export default function Dashboard() {
   const [genomes, setGenomes] = useState<GenomeAssemblyFromSearch[]>([]);
@@ -46,10 +62,52 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState<GeneFromSearch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [geneTooltip, setGeneTooltip] = useState<Record<string, string>>({});
+  const [primaryGene, setPrimaryGene] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("search");
   const router = useRouter()
 
   const species = "Human";
+
+  const fetchGeneExplanation = async (symbol: string) => {
+    if (geneTooltip[symbol]) return;
+
+    try {
+      console.log("Fetching tooltip for:", symbol);
+
+      const res = await fetch("/api/gene-tooltip", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ gene: symbol }),
+      });
+
+      if (!res.ok) {
+        throw new Error("API request failed");
+      }
+
+      const data = await res.json();
+
+      console.log("Tooltip response:", data);
+
+      const explanation =
+        data?.explanation ||
+        "Gene involved in important biological processes.";
+
+      setGeneTooltip((prev) => ({
+        ...prev,
+        [symbol]: explanation,
+      }));
+    } catch (error) {
+      console.error("Tooltip error:", error);
+
+      setGeneTooltip((prev) => ({
+        ...prev,
+        [symbol]: "Gene involved in important biological processes.",
+      }));
+    }
+  };
 
   useEffect(() => {
     const fetchGenomes = async () => {
@@ -98,7 +156,8 @@ export default function Dashboard() {
       const data = await searchGenes(query, genome);
       const results = filterFn ? data?.results.filter(filterFn) : data?.results;
 
-      setSearchResults(results);
+      setSearchResults(results || []);
+      setPrimaryGene(results && results.length > 0 ? (results[0]?.symbol ?? null) : null);
     } catch (err) {
       setError("Faield to search genes");
     } finally {
@@ -199,6 +258,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </CardHeader>
+
               <CardContent className="pb-4">
                 <Select
                   value={selectedGenome}
@@ -208,27 +268,50 @@ export default function Dashboard() {
                   <SelectTrigger className="h-9 w-full border-[#3c4f3d]/10">
                     <SelectValue placeholder="Select genome assembly" />
                   </SelectTrigger>
+
                   <SelectContent>
                     {genomes.map((genome) => (
                       <SelectItem key={genome.id} value={genome.id}>
-                        {genome.id} - {genome.name}
-                        {genome.active ? " (active)" : ""}
+                        <div className="flex w-full items-center justify-between">
+                          <span>
+                            {genome.id} - {genome.name}
+                            {genome.active ? " (active)" : ""}
+                          </span>
+
+                          {genome.id === "hg38" && (
+                            <span className="text-xs ms-2 text-green-600 font-medium">
+                              Latest (recommended)
+                            </span>
+                          )}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+
                 {selectedGenome && (
                   <p className="mt-2 text-xs text-[#3c4f3d]/60">
                     {
-                      genomes.find((genome) => genome.id === selectedGenome)
-                        ?.sourceName
+                      genomes.find((genome) => genome.id === selectedGenome)?.sourceName
                     }
                   </p>
                 )}
+
+                {/* Genome assembly explanation */}
+                <div className="mt-3 rounded-md bg-[#f6f8f6] p-3 text-xs leading-relaxed text-[#3c4f3d]/70">
+                  <p>
+                    <span className="font-medium">Genome Assembly:</span> A genome assembly is a reference version of the DNA sequence used to compare and study genetic variants.
+                  </p>
+
+                  <p className="mt-1">
+                    For human analysis,{" "}
+                    <span className="font-semibold text-[#3c4f3d]">hg38 (GRCh38)</span> is the latest and most commonly used reference genome, so it is <span className="font-semibold text-[#3c4f3d]">recommended</span> for most analyses.
+                  </p>
+                </div>
               </CardContent>
             </Card>
 
-            <Card className="mt-6 gap-0 border-none bg-white py-0 shadow-sm">
+            {/* <Card className="mt-6 gap-0 border-none bg-white py-0 shadow-sm">
               <CardHeader className="pt-4 pb-2">
                 <CardTitle className="text-sm font-normal text-[#3c4f3d]/70">
                   Browse
@@ -381,18 +464,217 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {/* {!isLoading && !error && searchResults.length === 0 && (
-                  <div className="flex h-48 flex-col items-center justify-center text-center text-gray-400">
-                    <Search className="mb-4 h-10 w-10 text-gray-400" />
-                    <p className="text-sm leading-relaxed">
-                      {mode === "search"
-                        ? "Enter a gene or symbol and click search"
-                        : selectedChromosome
-                          ? "No genes found on this chromosome"
-                          : "Select a chromosome to view genes"}
-                    </p>
+                {!isLoading && !error && searchResults.length === 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="relative flex h-64 mt-10 w-full items-center justify-center"
+                  >
+                    <motion.div
+                      animate={{ opacity: [0.3, 0.6, 0.3] }}
+                      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                      className="absolute inset-0 rounded-3xl bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 blur-3xl"
+                    />
+                    <div className="relative z-10 flex max-w-sm flex-col items-center rounded-3xl border border-white/10 bg-white/70 p-7 text-center shadow-2xl backdrop-blur-xl dark:bg-gray-900/70">
+                      <motion.div
+                        animate={{ y: [0, -8, 0] }}
+                        transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                        className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 shadow-xl"
+                      >
+                        <Search className="h-8 w-8 text-white" />
+                      </motion.div>
+                      <motion.h3
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.15 }}
+                        className="mb-1 text-sm font-semibold text-gray-900 dark:text-white"
+                      >
+                        {mode === "search"
+                          ? "Start Your Search"
+                          : selectedChromosome
+                            ? "No Genes Found"
+                            : "Choose a Chromosome"}
+                      </motion.h3>
+                      <motion.p
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.25 }}
+                        className="text-xs leading-relaxed text-gray-500 dark:text-gray-400"
+                      >
+                        {mode === "search"
+                          ? "Enter a gene name or symbol above to explore genomic insights."
+                          : selectedChromosome
+                            ? "This chromosome does not contain any indexed genes."
+                            : "Select a chromosome to view available genes."}
+                      </motion.p>
+                    </div>
+                  </motion.div>
+                )}
+              </CardContent>
+            </Card> */}
+            <Card className="border-none bg-white shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-[#3c4f3d]">
+                  Gene Search
+                </CardTitle>
+
+                <p className="text-xs text-[#3c4f3d]/60">
+                  Search for a disease, gene name, or biological term to discover related genes.
+                </p>
+              </CardHeader>
+
+              <CardContent>
+
+                {/* SEARCH INPUT */}
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Search gene or disease..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="border-[#3c4f3d]/10"
+                  />
+
+                  <Button
+                    className="bg-[#3c4f3d] cursor-pointer text-white hover:bg-[#2f3f30]"
+                    onClick={handleSearch}
+                  >
+                    <SearchIcon />
+                  </Button>
+                </div>
+
+
+                {/* EXAMPLE SEARCHES */}
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+
+                  <span className="text-[#3c4f3d]/60">Examples:</span>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setSearchQuery("BRCA1")}
+                  >
+                    Try BRCA1
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setSearchQuery("breast cancer")}
+                  >
+                    Breast Cancer
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setSearchQuery("cystic fibrosis")}
+                  >
+                    Cystic Fibrosis
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setSearchQuery("diabetes")}
+                  >
+                    Diabetes
+                  </Button>
+                </div>
+
+
+                {/* BEGINNER GUIDE */}
+                <div className="mt-3 rounded-md bg-[#f6f8f6] p-3 text-xs text-[#3c4f3d]/70">
+                  <p>
+                    <span className="font-medium">Tip:</span> Diseases may be linked to many genes.
+                    If you're unsure which gene to choose, start with well-known genes like{" "}
+                    <span className="font-semibold text-[#3c4f3d]">INS</span> (insulin gene for diabetes)
+                    or <span className="font-semibold text-[#3c4f3d]">BRCA1</span> (breast cancer gene).
+                  </p>
+                </div>
+
+
+                {/* SEARCH RESULTS */}
+                {searchResults.length > 0 && (
+                  <div className="mt-4">
+
+                    <div className="mb-2 text-xs text-[#3c4f3d]/60">
+                      Search Results: {searchResults.length} genes
+                    </div>
+
+                    <div className="overflow-hidden rounded-md border border-[#3c4f3d]/10">
+                      <table className="w-full text-xs">
+
+                        <thead className="bg-[#f6f8f6] text-left">
+                          <tr>
+                            <th className="p-2">Symbol</th>
+                            <th className="p-2">Name</th>
+                            <th className="p-2">Location</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {searchResults.map((gene, i) => (
+                            <tr
+                              key={i}
+                              className="cursor-pointer border-t border-[#3c4f3d]/10 hover:bg-[#fafafa]"
+                              onClick={() => setSelectedGene(gene)}
+                            >
+
+                              {/* SYMBOL WITH TOOLTIP */}
+                              <td className="p-2 font-medium text-[#3c4f3d]">
+
+                                <TooltipProvider>
+                                  <Tooltip>
+
+                                    <TooltipTrigger
+                                      className="cursor-help"
+                                      onMouseEnter={() => fetchGeneExplanation(gene.symbol)}
+                                    >
+                                      {gene.symbol}
+                                    </TooltipTrigger>
+
+                                    <TooltipContent className="max-w-[250px] text-xs">
+
+                                      {geneTooltip[gene.symbol] ? (
+                                        <p>{geneTooltip[gene.symbol]}</p>
+                                      ) : (
+                                        <p>Generating explanation...</p>
+                                      )}
+
+                                    </TooltipContent>
+
+                                  </Tooltip>
+                                </TooltipProvider>
+
+                                {gene.symbol === primaryGene && (
+                                  <span className="px-2 ms-3 py-1 rounded bg-red-100 text-red-700 text-xs font-medium">
+                                    Main
+                                  </span>
+                                )}
+
+                              </td>
+
+                              <td className="p-2 text-[#3c4f3d]/70">
+                                {gene.name || "-"}
+                              </td>
+
+                              <td className="p-2 text-[#3c4f3d]/70">
+                                {gene.chrom || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+
+                      </table>
+                    </div>
                   </div>
-                )} */}
+                )}
+
                 {!isLoading && !error && searchResults.length === 0 && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.96 }}
